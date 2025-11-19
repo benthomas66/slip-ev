@@ -5,6 +5,98 @@ import {
   defaultSigma,
 } from "./projections";
 
+const PLAYER_OPTIONS: string[] = [
+  "Trae Young",
+  "Dejounte Murray",
+  "Jayson Tatum",
+  "Jaylen Brown",
+  "Jrue Holiday",
+  "Kristaps Porzingis",
+  "Mikal Bridges",
+  "Cam Thomas",
+  "LaMelo Ball",
+  "Miles Bridges",
+  "DeMar DeRozan",
+  "Zach LaVine",
+  "Nikola Vucevic",
+  "Donovan Mitchell",
+  "Darius Garland",
+  "Evan Mobley",
+  "Luka Doncic",
+  "Kyrie Irving",
+  "Nikola Jokic",
+  "Jamal Murray",
+  "Michael Porter Jr.",
+  "Cade Cunningham",
+  "Jaden Ivey",
+  "Stephen Curry",
+  "Klay Thompson",
+  "Draymond Green",
+  "Andrew Wiggins",
+  "Jalen Green",
+  "Alperen Sengun",
+  "Fred VanVleet",
+  "Tyrese Haliburton",
+  "Myles Turner",
+  "Bennedict Mathurin",
+  "Kawhi Leonard",
+  "Paul George",
+  "James Harden",
+  "Russell Westbrook",
+  "LeBron James",
+  "Anthony Davis",
+  "D'Angelo Russell",
+  "Austin Reaves",
+  "Ja Morant",
+  "Jaren Jackson Jr.",
+  "Desmond Bane",
+  "Jimmy Butler",
+  "Bam Adebayo",
+  "Tyler Herro",
+  "Giannis Antetokounmpo",
+  "Damian Lillard",
+  "Khris Middleton",
+  "Brook Lopez",
+  "Anthony Edwards",
+  "Karl-Anthony Towns",
+  "Rudy Gobert",
+  "Zion Williamson",
+  "Brandon Ingram",
+  "CJ McCollum",
+  "Jalen Brunson",
+  "Julius Randle",
+  "RJ Barrett",
+  "Shai Gilgeous-Alexander",
+  "Chet Holmgren",
+  "Jalen Williams",
+  "Paolo Banchero",
+  "Franz Wagner",
+  "Jalen Suggs",
+  "Joel Embiid",
+  "Tyrese Maxey",
+  "Kevin Durant",
+  "Devin Booker",
+  "Bradley Beal",
+  "Anfernee Simons",
+  "Scoot Henderson",
+  "Jerami Grant",
+  "De'Aaron Fox",
+  "Domantas Sabonis",
+  "Keegan Murray",
+  "Victor Wembanyama",
+  "Devin Vassell",
+  "Keldon Johnson",
+  "Scottie Barnes",
+  "Pascal Siakam",
+  "OG Anunoby",
+  "Lauri Markkanen",
+  "Jordan Clarkson",
+  "Collin Sexton",
+  "Kyle Kuzma",
+  "Jordan Poole",
+];
+
+
 type Leg = {
   id: number;
   player: string;
@@ -421,126 +513,144 @@ function App() {
           </div>
 
           <table
+  style={{
+    width: "100%",
+    fontSize: "0.85rem",
+    borderCollapse: "collapse",
+  }}
+>
+  <thead>
+    <tr style={{ textAlign: "left", borderBottom: "1px solid #1e293b" }}>
+      <th style={{ padding: "0.5rem" }}>Player</th>
+      <th style={{ padding: "0.5rem" }}>Line (pts)</th>
+      <th style={{ padding: "0.5rem" }}>Projection μ (pts)</th>
+      <th style={{ padding: "0.5rem" }}>Pick</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {legs.map((leg) => (
+      <tr key={leg.id} style={{ borderTop: "1px solid #1e293b" }}>
+        {/* PLAYER CELL */}
+        <td style={{ padding: "0.5rem" }}>
+          <input
+            list="player-options"
+            placeholder="LeBron James"
+            value={leg.player}
+            onChange={(e) => updateLeg(leg.id, "player", e.target.value)}
             style={{
               width: "100%",
-              fontSize: "0.85rem",
-              borderCollapse: "collapse",
+              background: "#020617",
+              borderRadius: "0.375rem",
+              border: "1px solid #1e293b",
+              padding: "0.3rem 0.5rem",
+              color: "white",
+            }}
+          />
+        </td>
+
+        {/* LINE CELL */}
+        <td style={{ padding: "0.5rem" }}>
+          <input
+            type="number"
+            placeholder="26.5"
+            value={leg.line}
+            onChange={(e) => updateLeg(leg.id, "line", e.target.value)}
+            style={{
+              width: "100%",
+              background: "#020617",
+              borderRadius: "0.375rem",
+              border: "1px solid #1e293b",
+              padding: "0.3rem 0.5rem",
+              color: "white",
+            }}
+          />
+        </td>
+
+        {/* PROJECTION CELL */}
+        <td style={{ padding: "0.5rem" }}>
+          <div style={{ display: "flex", gap: "0.4rem" }}>
+            <input
+              type="number"
+              placeholder="auto"
+              value={leg.proj}
+              onChange={(e) => updateLeg(leg.id, "proj", e.target.value)}
+              style={{
+                width: "100%",
+                background: "#020617",
+                borderRadius: "0.375rem",
+                border: "1px solid #1e293b",
+                padding: "0.3rem 0.5rem",
+                color: "white",
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => autofillProjection(leg.id)}
+              style={{
+                fontSize: "0.75rem",
+                borderRadius: "0.375rem",
+                border: "1px solid #1e293b",
+                padding: "0.3rem 0.5rem",
+                background: "#020617",
+                color: "#e2e8f0",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Auto μ
+            </button>
+          </div>
+        </td>
+
+        {/* PICK CELL */}
+        <td style={{ padding: "0.5rem" }}>
+          <select
+            value={leg.pick}
+            onChange={(e) =>
+              updateLeg(leg.id, "pick", e.target.value as "over" | "under")
+            }
+            style={{
+              width: "100%",
+              background: "#020617",
+              borderRadius: "0.375rem",
+              border: "1px solid #1e293b",
+              padding: "0.3rem 0.5rem",
+              color: "white",
             }}
           >
-            <thead>
-              <tr style={{ textAlign: "left", borderBottom: "1px solid #1e293b" }}>
-                <th style={{ padding: "0.5rem" }}>Player</th>
-                <th style={{ padding: "0.5rem" }}>Line (pts)</th>
-                <th style={{ padding: "0.5rem" }}>Projection μ (pts)</th>
-                <th style={{ padding: "0.5rem" }}>Pick</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {legs.map((leg) => (
-                <tr key={leg.id} style={{ borderTop: "1px solid #1e293b" }}>
-                  <td style={{ padding: "0.5rem" }}>
-                    <input
-                      placeholder="LeBron James"
-                      value={leg.player}
-                      onChange={(e) => updateLeg(leg.id, "player", e.target.value)}
-                      style={{
-                        width: "100%",
-                        background: "#020617",
-                        borderRadius: "0.375rem",
-                        border: "1px solid #1e293b",
-                        padding: "0.3rem 0.5rem",
-                        color: "white",
-                      }}
-                    />
-                  </td>
-                  <td style={{ padding: "0.5rem" }}>
-                    <input
-                      type="number"
-                      placeholder="26.5"
-                      value={leg.line}
-                      onChange={(e) => updateLeg(leg.id, "line", e.target.value)}
-                      style={{
-                        width: "100%",
-                        background: "#020617",
-                        borderRadius: "0.375rem",
-                        border: "1px solid #1e293b",
-                        padding: "0.3rem 0.5rem",
-                        color: "white",
-                      }}
-                    />
-                  </td>
-                  <td style={{ padding: "0.5rem" }}>
-                    <div style={{ display: "flex", gap: "0.4rem" }}>
-                      <input
-                        type="number"
-                        placeholder="auto"
-                        value={leg.proj}
-                        onChange={(e) => updateLeg(leg.id, "proj", e.target.value)}
-                        style={{
-                          width: "100%",
-                          background: "#020617",
-                          borderRadius: "0.375rem",
-                          border: "1px solid #1e293b",
-                          padding: "0.3rem 0.5rem",
-                          color: "white",
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => autofillProjection(leg.id)}
-                        style={{
-                          fontSize: "0.75rem",
-                          borderRadius: "0.375rem",
-                          border: "1px solid #1e293b",
-                          padding: "0.3rem 0.5rem",
-                          background: "#020617",
-                          color: "#e2e8f0",
-                          cursor: "pointer",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        Auto μ
-                      </button>
-                    </div>
-                  </td>
-                  <td style={{ padding: "0.5rem" }}>
-                    <select
-                      value={leg.pick}
-                      onChange={(e) =>
-                        updateLeg(leg.id, "pick", e.target.value as "over" | "under")
-                      }
-                      style={{
-                        width: "100%",
-                        background: "#020617",
-                        borderRadius: "0.375rem",
-                        border: "1px solid #1e293b",
-                        padding: "0.3rem 0.5rem",
-                        color: "white",
-                      }}
-                    >
-                      <option value="over">Over</option>
-                      <option value="under">Under</option>
-                    </select>
-                  </td>
-                  <td style={{ padding: "0.5rem", textAlign: "right" }}>
-                    <button
-                      onClick={() => removeLeg(leg.id)}
-                      style={{
-                        fontSize: "0.8rem",
-                        color: "#f87171",
-                        border: "none",
-                        background: "transparent",
-                        cursor: "pointer",
-                      }}
-                    >
-                      remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            <option value="over">Over</option>
+            <option value="under">Under</option>
+          </select>
+        </td>
+
+        {/* REMOVE BUTTON */}
+        <td style={{ padding: "0.5rem", textAlign: "right" }}>
+          <button
+            onClick={() => removeLeg(leg.id)}
+            style={{
+              fontSize: "0.8rem",
+              color: "#f87171",
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+            }}
+          >
+            remove
+          </button>
+        </td>
+      </tr>
+    ))}
+  </tbody>
+</table>
+
+{/* player list for the datalist input above */}
+<datalist id="player-options">
+  {PLAYER_OPTIONS.map((name) => (
+    <option key={name} value={name} />
+  ))}
+</datalist>
+
 
           <div
             style={{
