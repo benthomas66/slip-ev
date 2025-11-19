@@ -1,5 +1,5 @@
 // AUTO-GENERATED FILE – do not edit by hand.
-// Run `python generate_projections_ts.py` after updating projections.csv
+// Run the projection scripts to refresh this file.
 
 export type Projection = {
   player: string;
@@ -18,3 +18,5 @@ export function findProjection(playerName: string): Projection | undefined {
   const normalized = playerName.trim().toLowerCase();
   return projections.find(p => p.player.toLowerCase() === normalized);
 }
+
+export const projectionsGeneratedAt = "2025-11-19T23:18:59.945408+00:00";

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { findProjection } from "./projections";
+import { findProjection, projectionsGeneratedAt } from "./projections";
+
 
 type Leg = {
   id: number;
@@ -320,6 +321,30 @@ function App() {
             Auto μ uses a projections table baked into this tool. We estimate per-leg hit
             probabilities with a simple Normal model (σ = 6) and compute EV using
             PrizePicks Power/Flex payout rules.
+            <p
+  style={{
+    fontSize: "0.75rem",
+    color: "#64748b",
+    marginBottom: "0.25rem",
+  }}
+>
+  Not affiliated with or endorsed by PrizePicks or the NBA. For informational
+  purposes only.
+</p>
+
+{projectionsGeneratedAt && (
+  <p
+    style={{
+      fontSize: "0.75rem",
+      color: "#64748b",
+      marginBottom: "0.75rem",
+    }}
+  >
+    Projections last refreshed:{" "}
+    {new Date(projectionsGeneratedAt).toLocaleString()}
+  </p>
+)}
+
           </p>
 
           {/* type + stake row */}
