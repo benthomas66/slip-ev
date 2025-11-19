@@ -5,8 +5,6 @@ import {
   defaultSigma,
 } from "./projections";
 
-
-
 type Leg = {
   id: number;
   player: string;
@@ -23,7 +21,6 @@ type LegResult = {
   pHit: number;
   sigma?: number;
 };
-
 
 type SlipType = "power" | "flex";
 
@@ -154,21 +151,21 @@ function App() {
     setLegs((prev) => prev.filter((leg) => leg.id !== id));
   };
 
-const autofillProjection = (id: number) => {
-  setLegs((prev) =>
-    prev.map((leg) => {
-      if (leg.id !== id) return leg;
-      const projData = findProjection(leg.player);
-      if (!projData) {
-        alert(
-          `No projection found for "${leg.player}". Check spelling or your projections.`
-        );
-        return leg;
-      }
-      return { ...leg, proj: projData.mu.toString() };
-    })
-  );
-};
+  const autofillProjection = (id: number) => {
+    setLegs((prev) =>
+      prev.map((leg) => {
+        if (leg.id !== id) return leg;
+        const projData = findProjection(leg.player);
+        if (!projData) {
+          alert(
+            `No projection found for "${leg.player}". Check spelling or your projections.`
+          );
+          return leg;
+        }
+        return { ...leg, proj: projData.mu.toString() };
+      })
+    );
+  };
 
   const analyzeSlip = () => {
     setErrorMsg(null);
@@ -187,56 +184,33 @@ const autofillProjection = (id: number) => {
       return;
     }
 
-   const results: LegResult[] = [];
-const pHits: number[] = [];
-let slipProbAll = 1;
-
-for (const leg of legs) {
-  const line = Number(leg.line);
-  const projVal = Number(leg.proj);
-  if (Number.isNaN(line) || Number.isNaN(projVal)) continue;
-
-  // Look up sigma for this player from projections; fall back to defaultSigma
-  const projInfo = findProjection(leg.player);
-  let sigma = defaultSigma;
-  if (projInfo && projInfo.sigma && projInfo.sigma > 0) {
-    sigma = projInfo.sigma;
-  }
-
-  const z = (line - projVal) / sigma;
-  const pOver = 1 - normalCdf(z);
-  const pHit = leg.pick === "over" ? pOver : 1 - pOver;
-
-  results.push({
-    player: leg.player || "Unknown player",
-    line,
-    proj: projVal,
-    pick: leg.pick,
-    pHit,
-    // @ts-ignore (or extend the type if you want)
-    sigma,
-  });
-
-  pHits.push(pHit);
-  slipProbAll *= pHit;
-}
-
+    const results: LegResult[] = [];
+    const pHits: number[] = [];
+    let slipProbAll = 1;
 
     for (const leg of legs) {
       const line = Number(leg.line);
-      const proj = Number(leg.proj);
-      if (Number.isNaN(line) || Number.isNaN(proj)) continue;
+      const projVal = Number(leg.proj);
+      if (Number.isNaN(line) || Number.isNaN(projVal)) continue;
 
-      const z = (line - proj) / sigma;
+      // look up sigma from projections; fall back to defaultSigma
+      const projInfo = findProjection(leg.player);
+      let sigma = defaultSigma;
+      if (projInfo && projInfo.sigma && projInfo.sigma > 0) {
+        sigma = projInfo.sigma;
+      }
+
+      const z = (line - projVal) / sigma;
       const pOver = 1 - normalCdf(z);
       const pHit = leg.pick === "over" ? pOver : 1 - pOver;
 
       results.push({
         player: leg.player || "Unknown player",
         line,
-        proj,
+        proj: projVal,
         pick: leg.pick,
         pHit,
+        sigma,
       });
 
       pHits.push(pHit);
@@ -356,35 +330,33 @@ for (const leg of legs) {
           <h1 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "0.25rem" }}>
             Analyze a PrizePicks slip
           </h1>
-          <p style={{ fontSize: "0.85rem", color: "#94a3b8", marginBottom: "0.75rem" }}>
-            Auto μ uses a projections table baked into this tool. We estimate per-leg hit
-            probabilities with a simple Normal model (σ = 6) and compute EV using
-            PrizePicks Power/Flex payout rules.
-            <p
-  style={{
-    fontSize: "0.75rem",
-    color: "#64748b",
-    marginBottom: "0.25rem",
-  }}
->
-  Not affiliated with or endorsed by PrizePicks or the NBA. For informational
-  purposes only.
-</p>
-
-{projectionsGeneratedAt && (
-  <p
-    style={{
-      fontSize: "0.75rem",
-      color: "#64748b",
-      marginBottom: "0.75rem",
-    }}
-  >
-    Projections last refreshed:{" "}
-    {new Date(projectionsGeneratedAt).toLocaleString()}
-  </p>
-)}
-
+          <p style={{ fontSize: "0.85rem", color: "#94a3b8", marginBottom: "0.25rem" }}>
+            Auto μ uses a projections table baked into this tool. For each leg we use a
+            Normal model with a player-specific μ and σ estimated from recent games, and
+            compute EV using PrizePicks Power/Flex payout rules.
           </p>
+          <p
+            style={{
+              fontSize: "0.75rem",
+              color: "#64748b",
+              marginBottom: "0.25rem",
+            }}
+          >
+            Not affiliated with or endorsed by PrizePicks or the NBA. For informational
+            purposes only.
+          </p>
+          {projectionsGeneratedAt && (
+            <p
+              style={{
+                fontSize: "0.75rem",
+                color: "#64748b",
+                marginBottom: "0.75rem",
+              }}
+            >
+              Projections last refreshed:{" "}
+              {new Date(projectionsGeneratedAt).toLocaleString()}
+            </p>
+          )}
 
           {/* type + stake row */}
           <div
@@ -656,8 +628,11 @@ for (const leg of legs) {
                       {r.player} – {r.pick.toUpperCase()} {r.line} pts
                     </div>
                     <div style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
-                      μ = {r.proj.toFixed(1)}, P(hit) ≈{" "}
-                      {(r.pHit * 100).toFixed(1)}%
+                      μ = {r.proj.toFixed(1)}
+                      {typeof r.sigma === "number" && (
+                        <> , σ ≈ {r.sigma.toFixed(1)}</>
+                      )}
+                      , P(hit) ≈ {(r.pHit * 100).toFixed(1)}%
                     </div>
                   </li>
                 ))}

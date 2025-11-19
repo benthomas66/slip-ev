@@ -22,4 +22,4 @@ export function findProjection(playerName: string): Projection | undefined {
 
 export const defaultSigma = 6;
 
-export const projectionsGeneratedAt = "2025-11-19T23:24:45.464824+00:00";
+export const projectionsGeneratedAt = "2025-11-19T23:36:49.205794+00:00";
