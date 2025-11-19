@@ -1,6 +1,6 @@
-player,points
-LeBron James,21.90
-Anthony Davis,18.40
-Stephen Curry,26.90
-Jayson Tatum,24.20
-James Harden,24.20
+player,mu,sigma
+LeBron James,21.90,6.56
+Anthony Davis,18.40,8.52
+Stephen Curry,26.90,13.63
+Jayson Tatum,24.20,5.25
+James Harden,24.20,7.59

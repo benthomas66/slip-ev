@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { findProjection, projectionsGeneratedAt } from "./projections";
+import {
+  findProjection,
+  projectionsGeneratedAt,
+  defaultSigma,
+} from "./projections";
+
 
 
 type Leg = {
@@ -16,7 +21,9 @@ type LegResult = {
   proj: number;
   pick: "over" | "under";
   pHit: number;
+  sigma?: number;
 };
+
 
 type SlipType = "power" | "flex";
 
@@ -147,19 +154,21 @@ function App() {
     setLegs((prev) => prev.filter((leg) => leg.id !== id));
   };
 
-  const autofillProjection = (id: number) => {
-    setLegs((prev) =>
-      prev.map((leg) => {
-        if (leg.id !== id) return leg;
-        const projData = findProjection(leg.player);
-        if (!projData) {
-          alert(`No projection found for "${leg.player}". Check spelling or your projections.`);
-          return leg;
-        }
-        return { ...leg, proj: projData.points.toString() };
-      })
-    );
-  };
+const autofillProjection = (id: number) => {
+  setLegs((prev) =>
+    prev.map((leg) => {
+      if (leg.id !== id) return leg;
+      const projData = findProjection(leg.player);
+      if (!projData) {
+        alert(
+          `No projection found for "${leg.player}". Check spelling or your projections.`
+        );
+        return leg;
+      }
+      return { ...leg, proj: projData.mu.toString() };
+    })
+  );
+};
 
   const analyzeSlip = () => {
     setErrorMsg(null);
@@ -178,10 +187,40 @@ function App() {
       return;
     }
 
-    const sigma = 6; // toy std dev for NBA points
-    const results: LegResult[] = [];
-    const pHits: number[] = [];
-    let slipProbAll = 1;
+   const results: LegResult[] = [];
+const pHits: number[] = [];
+let slipProbAll = 1;
+
+for (const leg of legs) {
+  const line = Number(leg.line);
+  const projVal = Number(leg.proj);
+  if (Number.isNaN(line) || Number.isNaN(projVal)) continue;
+
+  // Look up sigma for this player from projections; fall back to defaultSigma
+  const projInfo = findProjection(leg.player);
+  let sigma = defaultSigma;
+  if (projInfo && projInfo.sigma && projInfo.sigma > 0) {
+    sigma = projInfo.sigma;
+  }
+
+  const z = (line - projVal) / sigma;
+  const pOver = 1 - normalCdf(z);
+  const pHit = leg.pick === "over" ? pOver : 1 - pOver;
+
+  results.push({
+    player: leg.player || "Unknown player",
+    line,
+    proj: projVal,
+    pick: leg.pick,
+    pHit,
+    // @ts-ignore (or extend the type if you want)
+    sigma,
+  });
+
+  pHits.push(pHit);
+  slipProbAll *= pHit;
+}
+
 
     for (const leg of legs) {
       const line = Number(leg.line);
