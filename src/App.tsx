@@ -4,7 +4,30 @@ import {
   projectionsGeneratedAt,
   defaultSigma,
 } from "./projections";
+import type { StatType } from "./projections";
 
+type Leg = {
+  id: number;
+  player: string;
+  stat: StatType;
+  line: string; // book line, e.g. 26.5
+  proj: string; // projection μ
+  pick: "over" | "under";
+};
+
+type LegResult = {
+  player: string;
+  stat: StatType;
+  line: number;
+  proj: number;
+  pick: "over" | "under";
+  pHit: number;
+  sigma?: number;
+};
+
+type SlipType = "power" | "flex";
+
+// Same player list you used in the Python script
 const PLAYER_OPTIONS: string[] = [
   "Trae Young",
   "Dejounte Murray",
@@ -69,6 +92,9 @@ const PLAYER_OPTIONS: string[] = [
   "Shai Gilgeous-Alexander",
   "Chet Holmgren",
   "Jalen Williams",
+  "Scottie Barnes",
+  "Pascal Siakam",
+  "OG Anunoby",
   "Paolo Banchero",
   "Franz Wagner",
   "Jalen Suggs",
@@ -86,35 +112,12 @@ const PLAYER_OPTIONS: string[] = [
   "Victor Wembanyama",
   "Devin Vassell",
   "Keldon Johnson",
-  "Scottie Barnes",
-  "Pascal Siakam",
-  "OG Anunoby",
   "Lauri Markkanen",
   "Jordan Clarkson",
   "Collin Sexton",
   "Kyle Kuzma",
   "Jordan Poole",
 ];
-
-
-type Leg = {
-  id: number;
-  player: string;
-  line: string; // book line, e.g. 26.5
-  proj: string; // projection μ
-  pick: "over" | "under";
-};
-
-type LegResult = {
-  player: string;
-  line: number;
-  proj: number;
-  pick: "over" | "under";
-  pHit: number;
-  sigma?: number;
-};
-
-type SlipType = "power" | "flex";
 
 // Simple Normal CDF approximation
 function normalCdf(z: number): number {
@@ -206,9 +209,45 @@ function hitsDistribution(pHits: number[]): number[] {
   return dp; // dp[k] = P(exactly k hits)
 }
 
+// Expected payout factor for a flex slip if all legs have the same hit prob p
+function flexExpectedFactorForEqualLegs(
+  n: number,
+  payouts: FlexPayout[],
+  p: number
+): number {
+  const pHits = Array(n).fill(p);
+  const dist = hitsDistribution(pHits); // dist[k] = P(exactly k hits)
+  let expectedFactor = 0;
+  for (const { hits, multiplier } of payouts) {
+    const prob = dist[hits] ?? 0;
+    expectedFactor += multiplier * prob;
+  }
+  return expectedFactor;
+}
+
+// Solve for p such that a flex slip has zero EV if all legs had prob p
+function computeFlexBreakEvenProb(n: number, payouts: FlexPayout[]): number {
+  let low = 0.01;
+  let high = 0.99;
+
+  for (let i = 0; i < 40; i++) {
+    const mid = (low + high) / 2;
+    const factor = flexExpectedFactorForEqualLegs(n, payouts, mid);
+    if (factor > 1) {
+      // Too +EV at this p → p is too high, move down
+      high = mid;
+    } else {
+      // -EV or fair → need higher p to break even
+      low = mid;
+    }
+  }
+
+  return (low + high) / 2;
+}
+
 function App() {
   const [legs, setLegs] = useState<Leg[]>([
-    { id: 1, player: "", line: "", proj: "", pick: "over" },
+    { id: 1, player: "", stat: "PTS", line: "", proj: "", pick: "over" },
   ]);
 
   const [slipType, setSlipType] = useState<SlipType>("power");
@@ -223,11 +262,12 @@ function App() {
   );
   const [payoutInfo, setPayoutInfo] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [breakEvenHitProb, setBreakEvenHitProb] = useState<number | null>(null);
 
   const addLeg = () => {
     setLegs((prev) => [
       ...prev,
-      { id: Date.now(), player: "", line: "", proj: "", pick: "over" },
+      { id: Date.now(), player: "", stat: "PTS", line: "", proj: "", pick: "over" },
     ]);
   };
 
@@ -247,10 +287,10 @@ function App() {
     setLegs((prev) =>
       prev.map((leg) => {
         if (leg.id !== id) return leg;
-        const projData = findProjection(leg.player);
+        const projData = findProjection(leg.player, leg.stat);
         if (!projData) {
           alert(
-            `No projection found for "${leg.player}". Check spelling or your projections.`
+            `No projection found for "${leg.player}" [${leg.stat}]. Check spelling or your projections.`
           );
           return leg;
         }
@@ -261,6 +301,7 @@ function App() {
 
   const analyzeSlip = () => {
     setErrorMsg(null);
+    setBreakEvenHitProb(null);
     const n = legs.length;
 
     if (n < 2) {
@@ -285,8 +326,7 @@ function App() {
       const projVal = Number(leg.proj);
       if (Number.isNaN(line) || Number.isNaN(projVal)) continue;
 
-      // look up sigma from projections; fall back to defaultSigma
-      const projInfo = findProjection(leg.player);
+      const projInfo = findProjection(leg.player, leg.stat);
       let sigma = defaultSigma;
       if (projInfo && projInfo.sigma && projInfo.sigma > 0) {
         sigma = projInfo.sigma;
@@ -298,6 +338,7 @@ function App() {
 
       results.push({
         player: leg.player || "Unknown player",
+        stat: leg.stat,
         line,
         proj: projVal,
         pick: leg.pick,
@@ -310,7 +351,7 @@ function App() {
     }
 
     if (results.length !== n) {
-      setErrorMsg("Please fill line and projection for each leg.");
+      setErrorMsg("Please fill player, stat, line, and projection for each leg.");
       return;
     }
 
@@ -336,6 +377,10 @@ function App() {
         return;
       }
 
+      // per-leg breakeven probability if all legs had the same p
+      const pBe = Math.pow(1 / m, 1 / n);
+      setBreakEvenHitProb(pBe);
+
       const roi = m * slipProbAll - 1;
       const ev = s * roi;
 
@@ -352,6 +397,10 @@ function App() {
         setEffectiveMultiplier(null);
         return;
       }
+
+      // breakeven per-leg probability if all legs had the same p
+      const pBe = computeFlexBreakEvenProb(n, payouts);
+      setBreakEvenHitProb(pBe);
 
       const dist = hitsDistribution(pHits); // dist[k] = P(exactly k hits)
       let expectedFactor = 0;
@@ -379,9 +428,11 @@ function App() {
     <div
       style={{
         minHeight: "100vh",
+        width: "100vw",
         background: "#020617",
         color: "white",
-        padding: "1.5rem",
+        padding: "1rem",
+        boxSizing: "border-box",
         fontFamily: "system-ui, -apple-system, BlinkMacSystemFont",
       }}
     >
@@ -398,7 +449,7 @@ function App() {
           SlipEV <span style={{ color: "#64748b", fontSize: "0.8rem" }}>beta</span>
         </div>
         <div style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
-          PrizePicks · NBA points only
+          PrizePicks · NBA PTS / REB / AST / PRA
         </div>
       </header>
 
@@ -419,14 +470,43 @@ function App() {
             padding: "1rem",
           }}
         >
-          <h1 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "0.25rem" }}>
-            Analyze a PrizePicks slip
+          <h1 style={{ fontSize: "1.2rem", fontWeight: 600, marginBottom: "0.25rem" }}>
+            NBA PrizePicks EV Calculator
           </h1>
-          <p style={{ fontSize: "0.85rem", color: "#94a3b8", marginBottom: "0.25rem" }}>
-            Auto μ uses a projections table baked into this tool. For each leg we use a
-            Normal model with a player-specific μ and σ estimated from recent games, and
-            compute EV using PrizePicks Power/Flex payout rules.
+          <p
+            style={{
+              fontSize: "0.9rem",
+              color: "#cbd5f5",
+              marginBottom: "0.25rem",
+            }}
+          >
+            Paste in your PrizePicks lines and we&apos;ll estimate hit probabilities and
+            expected value using recent NBA stats.
           </p>
+          <ol
+            style={{
+              fontSize: "0.8rem",
+              color: "#cbd5f5",
+              paddingLeft: "1.25rem",
+              marginTop: "0.25rem",
+              marginBottom: "0.5rem",
+            }}
+          >
+            <li>
+              Choose <strong>Power</strong> or <strong>Flex</strong> and enter your
+              stake.
+            </li>
+            <li>
+              Add 2–6 legs and type a player name (or pick from the dropdown).
+            </li>
+            <li>
+              Select the stat and line, then click <strong>Auto μ</strong> to pull our
+              projection.
+            </li>
+            <li>
+              Pick Over/Under and hit <strong>Analyze slip</strong>.
+            </li>
+          </ol>
           <p
             style={{
               fontSize: "0.75rem",
@@ -512,145 +592,184 @@ function App() {
             </div>
           </div>
 
-          <table
-  style={{
-    width: "100%",
-    fontSize: "0.85rem",
-    borderCollapse: "collapse",
-  }}
->
-  <thead>
-    <tr style={{ textAlign: "left", borderBottom: "1px solid #1e293b" }}>
-      <th style={{ padding: "0.5rem" }}>Player</th>
-      <th style={{ padding: "0.5rem" }}>Line (pts)</th>
-      <th style={{ padding: "0.5rem" }}>Projection μ (pts)</th>
-      <th style={{ padding: "0.5rem" }}>Pick</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {legs.map((leg) => (
-      <tr key={leg.id} style={{ borderTop: "1px solid #1e293b" }}>
-        {/* PLAYER CELL */}
-        <td style={{ padding: "0.5rem" }}>
-          <input
-            list="player-options"
-            placeholder="LeBron James"
-            value={leg.player}
-            onChange={(e) => updateLeg(leg.id, "player", e.target.value)}
-            style={{
-              width: "100%",
-              background: "#020617",
-              borderRadius: "0.375rem",
-              border: "1px solid #1e293b",
-              padding: "0.3rem 0.5rem",
-              color: "white",
-            }}
-          />
-        </td>
-
-        {/* LINE CELL */}
-        <td style={{ padding: "0.5rem" }}>
-          <input
-            type="number"
-            placeholder="26.5"
-            value={leg.line}
-            onChange={(e) => updateLeg(leg.id, "line", e.target.value)}
-            style={{
-              width: "100%",
-              background: "#020617",
-              borderRadius: "0.375rem",
-              border: "1px solid #1e293b",
-              padding: "0.3rem 0.5rem",
-              color: "white",
-            }}
-          />
-        </td>
-
-        {/* PROJECTION CELL */}
-        <td style={{ padding: "0.5rem" }}>
-          <div style={{ display: "flex", gap: "0.4rem" }}>
-            <input
-              type="number"
-              placeholder="auto"
-              value={leg.proj}
-              onChange={(e) => updateLeg(leg.id, "proj", e.target.value)}
+          {/* table wrapper for mobile scroll */}
+          <div style={{ width: "100%", overflowX: "auto" }}>
+            <table
               style={{
                 width: "100%",
-                background: "#020617",
-                borderRadius: "0.375rem",
-                border: "1px solid #1e293b",
-                padding: "0.3rem 0.5rem",
-                color: "white",
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => autofillProjection(leg.id)}
-              style={{
-                fontSize: "0.75rem",
-                borderRadius: "0.375rem",
-                border: "1px solid #1e293b",
-                padding: "0.3rem 0.5rem",
-                background: "#020617",
-                color: "#e2e8f0",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
+                minWidth: "640px",
+                fontSize: "0.85rem",
+                borderCollapse: "collapse",
               }}
             >
-              Auto μ
-            </button>
+              <thead>
+                <tr
+                  style={{
+                    textAlign: "left",
+                    borderBottom: "1px solid #1e293b",
+                  }}
+                >
+                  <th style={{ padding: "0.5rem" }}>Player</th>
+                  <th style={{ padding: "0.5rem" }}>Stat</th>
+                  <th style={{ padding: "0.5rem" }}>Line</th>
+                  <th style={{ padding: "0.5rem" }}>Projection μ</th>
+                  <th style={{ padding: "0.5rem" }}>Pick</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {legs.map((leg) => (
+                  <tr key={leg.id} style={{ borderTop: "1px solid #1e293b" }}>
+                    {/* PLAYER */}
+                    <td style={{ padding: "0.5rem" }}>
+                      <input
+                        list="player-options"
+                        placeholder="LeBron James"
+                        value={leg.player}
+                        onChange={(e) =>
+                          updateLeg(leg.id, "player", e.target.value)
+                        }
+                        style={{
+                          width: "100%",
+                          background: "#020617",
+                          borderRadius: "0.375rem",
+                          border: "1px solid #1e293b",
+                          padding: "0.3rem 0.5rem",
+                          color: "white",
+                        }}
+                      />
+                    </td>
+
+                    {/* STAT */}
+                    <td style={{ padding: "0.5rem" }}>
+                      <select
+                        value={leg.stat}
+                        onChange={(e) =>
+                          updateLeg(leg.id, "stat", e.target.value as StatType)
+                        }
+                        style={{
+                          width: "100%",
+                          background: "#020617",
+                          borderRadius: "0.375rem",
+                          border: "1px solid #1e293b",
+                          padding: "0.3rem 0.5rem",
+                          color: "white",
+                        }}
+                      >
+                        <option value="PTS">PTS</option>
+                        <option value="REB">REB</option>
+                        <option value="AST">AST</option>
+                        <option value="PRA">PRA</option>
+                      </select>
+                    </td>
+
+                    {/* LINE */}
+                    <td style={{ padding: "0.5rem" }}>
+                      <input
+                        type="number"
+                        placeholder="e.g. 26.5"
+                        value={leg.line}
+                        onChange={(e) => updateLeg(leg.id, "line", e.target.value)}
+                        style={{
+                          width: "100%",
+                          background: "#020617",
+                          borderRadius: "0.375rem",
+                          border: "1px solid #1e293b",
+                          padding: "0.3rem 0.5rem",
+                          color: "white",
+                        }}
+                      />
+                    </td>
+
+                    {/* PROJECTION */}
+                    <td style={{ padding: "0.5rem" }}>
+                      <div style={{ display: "flex", gap: "0.4rem" }}>
+                        <input
+                          type="number"
+                          placeholder="auto"
+                          value={leg.proj}
+                          onChange={(e) =>
+                            updateLeg(leg.id, "proj", e.target.value)
+                          }
+                          style={{
+                            width: "100%",
+                            background: "#020617",
+                            borderRadius: "0.375rem",
+                            border: "1px solid #1e293b",
+                            padding: "0.3rem 0.5rem",
+                            color: "white",
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => autofillProjection(leg.id)}
+                          style={{
+                            fontSize: "0.75rem",
+                            borderRadius: "0.375rem",
+                            border: "1px solid #1e293b",
+                            padding: "0.3rem 0.5rem",
+                            background: "#020617",
+                            color: "#e2e8f0",
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          Auto μ
+                        </button>
+                      </div>
+                    </td>
+
+                    {/* PICK */}
+                    <td style={{ padding: "0.5rem" }}>
+                      <select
+                        value={leg.pick}
+                        onChange={(e) =>
+                          updateLeg(
+                            leg.id,
+                            "pick",
+                            e.target.value as "over" | "under"
+                          )
+                        }
+                        style={{
+                          width: "100%",
+                          background: "#020617",
+                          borderRadius: "0.375rem",
+                          border: "1px solid #1e293b",
+                          padding: "0.3rem 0.5rem",
+                          color: "white",
+                        }}
+                      >
+                        <option value="over">Over</option>
+                        <option value="under">Under</option>
+                      </select>
+                    </td>
+
+                    {/* REMOVE */}
+                    <td style={{ padding: "0.5rem", textAlign: "right" }}>
+                      <button
+                        onClick={() => removeLeg(leg.id)}
+                        style={{
+                          fontSize: "0.8rem",
+                          color: "#f87171",
+                          border: "none",
+                          background: "transparent",
+                          cursor: "pointer",
+                        }}
+                      >
+                        remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </td>
 
-        {/* PICK CELL */}
-        <td style={{ padding: "0.5rem" }}>
-          <select
-            value={leg.pick}
-            onChange={(e) =>
-              updateLeg(leg.id, "pick", e.target.value as "over" | "under")
-            }
-            style={{
-              width: "100%",
-              background: "#020617",
-              borderRadius: "0.375rem",
-              border: "1px solid #1e293b",
-              padding: "0.3rem 0.5rem",
-              color: "white",
-            }}
-          >
-            <option value="over">Over</option>
-            <option value="under">Under</option>
-          </select>
-        </td>
-
-        {/* REMOVE BUTTON */}
-        <td style={{ padding: "0.5rem", textAlign: "right" }}>
-          <button
-            onClick={() => removeLeg(leg.id)}
-            style={{
-              fontSize: "0.8rem",
-              color: "#f87171",
-              border: "none",
-              background: "transparent",
-              cursor: "pointer",
-            }}
-          >
-            remove
-          </button>
-        </td>
-      </tr>
-    ))}
-  </tbody>
-</table>
-
-{/* player list for the datalist input above */}
-<datalist id="player-options">
-  {PLAYER_OPTIONS.map((name) => (
-    <option key={name} value={name} />
-  ))}
-</datalist>
-
+          <datalist id="player-options">
+            {PLAYER_OPTIONS.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
 
           <div
             style={{
@@ -713,9 +832,21 @@ function App() {
             padding: "1rem",
           }}
         >
-          <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+          <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.25rem" }}>
             Results
           </h2>
+          <p
+            style={{
+              fontSize: "0.8rem",
+              color: "#94a3b8",
+              marginBottom: "0.5rem",
+            }}
+          >
+            Each leg shows your line, our projected average (μ), estimated game-to-game
+            volatility (σ), and the chance your pick hits under our model. Green text
+            means this leg is better than the breakeven win rate for this slip; red means
+            worse.
+          </p>
 
           {!legResults || legResults.length === 0 ? (
             <p style={{ fontSize: "0.85rem", color: "#64748b" }}>
@@ -735,7 +866,7 @@ function App() {
                     }}
                   >
                     <div style={{ fontWeight: 500 }}>
-                      {r.player} – {r.pick.toUpperCase()} {r.line} pts
+                      {r.player} – {r.stat} – {r.pick.toUpperCase()} {r.line}
                     </div>
                     <div style={{ fontSize: "0.8rem", color: "#94a3b8" }}>
                       μ = {r.proj.toFixed(1)}
@@ -743,7 +874,27 @@ function App() {
                         <> , σ ≈ {r.sigma.toFixed(1)}</>
                       )}
                       , P(hit) ≈ {(r.pHit * 100).toFixed(1)}%
+                      {" · fair ≈ "}
+                      {(1 / r.pHit).toFixed(2)}x
                     </div>
+                    {breakEvenHitProb !== null && (
+                      <div
+                        style={{
+                          fontSize: "0.75rem",
+                          color:
+                            (r.pHit - breakEvenHitProb) * 100 >= 0
+                              ? "#4ade80"
+                              : "#f97373", // green if +EV, red if -EV
+                        }}
+                      >
+                        Breakeven per leg for this slip:{" "}
+                        {(breakEvenHitProb * 100).toFixed(1)}%. This leg:{" "}
+                        {(r.pHit * 100).toFixed(1)}% → edge ={" "}
+                        {((r.pHit - breakEvenHitProb) * 100 >= 0 ? "+" : "")}
+                        {((r.pHit - breakEvenHitProb) * 100).toFixed(1)}{" "}
+                        percentage points
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -787,6 +938,31 @@ function App() {
                         {evDollars.toFixed(2)} (
                         {(evPct * 100).toFixed(1)}% ROI)
                       </span>
+                      <div
+                        style={{
+                          marginTop: "0.2rem",
+                          fontSize: "0.8rem",
+                          color: "#94a3b8",
+                        }}
+                      >
+                        In plain terms: if you placed this same slip many times, our
+                        model expects you&apos;d get back about $
+                        {(Number(stake || "0") + evDollars).toFixed(2)} on average for
+                        each ${Number(stake || "0").toFixed(2)} bet.
+                      </div>
+                    </div>
+                  )}
+
+                  {breakEvenHitProb !== null && (
+                    <div
+                      style={{
+                        marginTop: "0.35rem",
+                        fontSize: "0.8rem",
+                        color: "#94a3b8",
+                      }}
+                    >
+                      If all legs had the same win chance, breakeven would be about{" "}
+                      {(breakEvenHitProb * 100).toFixed(1)}% per leg.
                     </div>
                   )}
 
