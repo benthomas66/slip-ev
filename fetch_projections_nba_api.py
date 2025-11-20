@@ -1,6 +1,6 @@
 import csv
 import time
-from typing import Tuple
+from typing import Tuple, Dict
 
 import pandas as pd
 from nba_api.stats.static import players
@@ -128,7 +128,6 @@ PLAYERS = [
     "Jordan Poole",
 ]
 
-
 SEASON = "2024-25"          # NBA season format "YYYY-YY"
 N_GAMES = 10                # how many recent games to average
 OUTPUT_CSV = "nba_projections.csv"
@@ -150,10 +149,11 @@ def get_player_id(full_name: str) -> Tuple[int, str]:
     return match["id"], match["full_name"]
 
 
-def get_recent_mu_sigma(player_id: int, n_games: int) -> Tuple[float, float]:
+def get_stat_lines(player_id: int, n_games: int) -> Dict[str, Tuple[float, float]]:
     """
-    Get average points (mu) and standard deviation (sigma)
-    over the last n_games in the configured SEASON.
+    Compute mu and sigma for PTS, REB, AST, PRA over the last n_games
+    in the configured SEASON.
+    Returns a dict like {"PTS": (mu, sigma), "REB": (mu, sigma), ...}
     """
     gl = PlayerGameLog(
         player_id=player_id,
@@ -162,35 +162,60 @@ def get_recent_mu_sigma(player_id: int, n_games: int) -> Tuple[float, float]:
     )
     df = gl.get_data_frames()[0]
 
-    # Most recent games first; just take top n_games
     df_recent = df.head(n_games)
     if df_recent.empty:
-        return 0.0, 6.0  # fall back if no data
+        # no data; fallback
+        return {
+            "PTS": (0.0, 6.0),
+            "REB": (0.0, 3.0),
+            "AST": (0.0, 3.0),
+            "PRA": (0.0, 8.0),
+        }
 
     pts = df_recent["PTS"].astype(float)
-    mu = float(pts.mean())
+    reb = df_recent["REB"].astype(float)
+    ast = df_recent["AST"].astype(float)
+    pra = (df_recent["PTS"] + df_recent["REB"] + df_recent["AST"]).astype(float)
 
-    # If only 1 game, std will be NaN; fall back to 6 then.
-    sigma = float(pts.std(ddof=0))
-    if not pd.notna(sigma) or sigma <= 0:
-        sigma = 6.0
+    stat_series = {
+        "PTS": pts,
+        "REB": reb,
+        "AST": ast,
+        "PRA": pra,
+    }
 
-    return mu, sigma
+    results: Dict[str, Tuple[float, float]] = {}
+
+    for stat_name, series in stat_series.items():
+        mu = float(series.mean())
+        sigma = float(series.std(ddof=0))
+        # basic fallback if too few games / 0 variance
+        if not pd.notna(sigma) or sigma <= 0:
+            if stat_name == "PTS":
+                sigma = 6.0
+            elif stat_name in ("REB", "AST"):
+                sigma = 3.0
+            else:  # PRA
+                sigma = 8.0
+        results[stat_name] = (mu, sigma)
+
+    return results
 
 
 def main() -> None:
-    rows: list[tuple[str, float, float]] = []
+    rows: list[tuple[str, str, float, float]] = []
 
     for name in PLAYERS:
         try:
             pid, canonical_name = get_player_id(name)
-            mu, sigma = get_recent_mu_sigma(pid, N_GAMES)
-            print(
-                f"{canonical_name}: mu={mu:.2f} pts, sigma={sigma:.2f} "
-                f"(last {N_GAMES} games)"
-            )
-            rows.append((canonical_name, mu, sigma))
-            time.sleep(0.5)  # be gentle with API
+            stat_lines = get_stat_lines(pid, N_GAMES)
+            for stat_name, (mu, sigma) in stat_lines.items():
+                print(
+                    f"{canonical_name} [{stat_name}]: mu={mu:.2f}, "
+                    f"sigma={sigma:.2f} (last {N_GAMES} games)"
+                )
+                rows.append((canonical_name, stat_name, mu, sigma))
+            time.sleep(0.5)
         except Exception as e:
             print(f"Error for {name}: {e}")
 
@@ -200,11 +225,11 @@ def main() -> None:
 
     with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["player", "mu", "sigma"])
-        for name, mu, sigma in rows:
-            w.writerow([name, f"{mu:.2f}", f"{sigma:.2f}"])
+        w.writerow(["player", "stat", "mu", "sigma"])
+        for player, stat_name, mu, sigma in rows:
+            w.writerow([player, stat_name, f"{mu:.2f}", f"{sigma:.2f}"])
 
-    print(f"Wrote {OUTPUT_CSV} with {len(rows)} players.")
+    print(f"Wrote {OUTPUT_CSV} with {len(rows)} player-stat projections.")
 
 
 if __name__ == "__main__":

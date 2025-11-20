@@ -428,7 +428,7 @@ function App() {
     <div
       style={{
         minHeight: "100vh",
-        width: "100vw",
+        width: "100%",
         background: "#020617",
         color: "white",
         padding: "1rem",
@@ -597,7 +597,6 @@ function App() {
             <table
               style={{
                 width: "100%",
-                minWidth: "640px",
                 fontSize: "0.85rem",
                 borderCollapse: "collapse",
               }}
